@@ -4,6 +4,7 @@ Description=Daily timer for restic
 [Timer]
 OnCalendar=daily
 Persistent=true
+OnBootSec=1min
 
 [Install]
 WantedBy=timers.target
