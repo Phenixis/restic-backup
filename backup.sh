@@ -1,25 +1,20 @@
-#!/bin/sh
+#!/bin/bash
 # https://gist.github.com/iTrooz/712093480b3261698baec2f90fb4868b
 # Called by crontab/systemd timer
 set -e
 trap 'on_exit $?' EXIT
-start=$(date +%s%3N)
+start=$(date +%s%N)
 on_exit() {
     status=$1
     if [ $status -eq 0 ]; then
-        end=$(date +%s%3N)
-        duration_secs=$((end - start))
+        end=$(date +%s%N)
+        duration_nanos=$((end - start))
         LC_NUMERIC=C # for printf decimal point
-        duration=$(printf "%.1f\n" $(echo $duration_secs/1000 | bc -l))
+        duration=$(printf "%.1f\n" $(echo $duration_nanos/1000000000 | bc -l))
         msg="Time: ${duration}s, Size: ${human_size}"
         echo "Success: $msg"
-        notify-send "Restic Backup" "$msg" 
-    elif [ $status -eq 10 ]; then
-        echo "Failed because of metered network"
-        notify-send "Restic backup" "Failed because of metered network"
     else
         echo "Failure: $status"
-        notify-send -u critical "Restic backup" "Failed with exit code $status"
     fi
 }
 
@@ -30,15 +25,6 @@ cd "$(realpath $(dirname $0))"
 set -a
 . "$PWD/.env"
 set +a
-
-# Do not run if on a metered network
-for uuid in $(nmcli --fields=uuid connection show --active | tail -n +2); do
-    metered=$(nmcli connection show "$uuid" | grep -i metered | awk '{print $2}')
-    echo "connection $uuid metered status: $metered"
-    if [ "$metered" = "yes" ]; then
-        exit 10
-    fi
-done
 
 # Read paths from paths.txt, expand ~, and store as array
 echo "Read paths to backup from paths.txt"
@@ -78,3 +64,29 @@ restic forget \
     --keep-monthly $RESTIC_KEEP_MONTHLY \
     --keep-yearly $RESTIC_KEEP_YEARLY \
     --group-by tags --prune
+
+if [ -f ".env.b2" ]; then
+    echo "Replicate snapshots to offsite B2 repository"
+    LOCAL_REPOSITORY="$RESTIC_REPOSITORY"
+    LOCAL_PASSWORD="$RESTIC_PASSWORD"
+    # RESTIC_PASSWORD/RESTIC_REPOSITORY take priority over --password-command/-r
+    # if left set, which would point the copy's destination back at the local repo
+    unset RESTIC_REPOSITORY RESTIC_PASSWORD
+    set -a
+    . "$PWD/.env.b2"
+    set +a
+
+    restic copy \
+        --from-repo "$LOCAL_REPOSITORY" \
+        --from-password-command "echo \"$LOCAL_PASSWORD\"" \
+        -r "$B2_REPOSITORY" \
+        --password-command 'echo "$B2_RESTIC_PASSWORD"'
+
+    echo "Forget old backups (offsite)"
+    restic -r "$B2_REPOSITORY" --password-command 'echo "$B2_RESTIC_PASSWORD"' forget \
+        --keep-daily $RESTIC_KEEP_DAILY \
+        --keep-weekly $RESTIC_KEEP_WEEKLY \
+        --keep-monthly $RESTIC_KEEP_MONTHLY \
+        --keep-yearly $RESTIC_KEEP_YEARLY \
+        --group-by tags --prune
+fi
