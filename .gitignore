@@ -2,3 +2,5 @@
 paths.txt
 hooks
 tmp
+.env.b2
+.env.mail

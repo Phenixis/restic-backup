@@ -1,10 +1,11 @@
 [Unit]
 Description=Daily restic backup
 Wants=network-online.target
+OnFailure=restic-failure-mail@%n.service
 After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/PATH/TO/BACKUP/SCRIPT/backup.sh
+ExecStart=/home/maxime/restic-backup/backup.sh
 StandardOutput=journal
 StandardError=journal
